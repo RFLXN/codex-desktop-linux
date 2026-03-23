@@ -47,6 +47,26 @@ sudo dnf groupinstall 'Development Tools'
 sudo pacman -S nodejs npm python p7zip curl base-devel
 ```
 
+### NixOS
+
+A Nix flake is provided that handles dependencies and patches Electron for
+NixOS:
+
+```bash
+nix run github:ilysenko/codex-desktop-linux
+```
+
+This installs the app into `codex-app/` in the current directory. You can also
+enter a dev shell with the required tooling:
+
+```bash
+nix develop github:ilysenko/codex-desktop-linux
+```
+
+To add it to a system flake, include this repo as an input and expose the
+installer package in `environment.systemPackages`, then run
+`codex-desktop-installer` after rebuilding.
+
 You also need the **Codex CLI**:
 
 ```bash
