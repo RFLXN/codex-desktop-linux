@@ -76,6 +76,11 @@ impl PersistedState {
         fs::write(path, content).with_context(|| format!("Failed to write {}", path.display()))?;
         Ok(())
     }
+
+    pub fn mark_failed(&mut self, message: impl Into<String>) {
+        self.status = UpdateStatus::Failed;
+        self.error_message = Some(message.into());
+    }
 }
 
 #[cfg(test)]

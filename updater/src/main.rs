@@ -3,6 +3,7 @@ mod cli;
 mod config;
 mod logging;
 mod state;
+mod upstream;
 
 use anyhow::Result;
 use clap::Parser;
