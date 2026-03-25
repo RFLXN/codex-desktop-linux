@@ -113,6 +113,8 @@ async fn run_check_cycle(
     state: &mut PersistedState,
     paths: &RuntimePaths,
 ) -> Result<()> {
+    let retrying_failed_update = state.status == UpdateStatus::Failed;
+
     if matches!(
         state.status,
         UpdateStatus::ReadyToInstall | UpdateStatus::WaitingForAppExit | UpdateStatus::Installing
@@ -138,6 +140,7 @@ async fn run_check_cycle(
 
         if previous_headers_fingerprint.as_deref() == Some(metadata.headers_fingerprint.as_str())
             && state.dmg_sha256.is_some()
+            && !retrying_failed_update
         {
             state.status = UpdateStatus::Idle;
             state.save(&paths.state_file)?;
@@ -152,7 +155,7 @@ async fn run_check_cycle(
         let downloaded =
             upstream::download_dmg(&client, &config.dmg_url, &downloads_dir, Utc::now()).await?;
 
-        if state.dmg_sha256.as_deref() == Some(downloaded.sha256.as_str()) {
+        if state.dmg_sha256.as_deref() == Some(downloaded.sha256.as_str()) && !retrying_failed_update {
             state.status = UpdateStatus::Idle;
             state.artifact_paths.dmg_path = Some(downloaded.path);
             state.save(&paths.state_file)?;
@@ -210,6 +213,19 @@ async fn reconcile_pending_install(
 ) -> Result<()> {
     state.installed_version = install::installed_package_version();
     state.auto_install_on_app_exit = config.auto_install_on_app_exit;
+
+    if state.status == UpdateStatus::Failed
+        && state.candidate_version.is_some()
+        && state
+            .artifact_paths
+            .deb_path
+            .as_ref()
+            .is_some_and(|path| path.exists())
+    {
+        state.status = UpdateStatus::ReadyToInstall;
+        state.error_message = None;
+        state.save(&paths.state_file)?;
+    }
 
     match state.status {
         UpdateStatus::ReadyToInstall | UpdateStatus::WaitingForAppExit => {
@@ -341,6 +357,47 @@ fn notify_failure(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[tokio::test]
+    async fn failed_state_with_existing_deb_returns_to_ready_to_install() -> Result<()> {
+        let temp = tempfile::tempdir()?;
+        let paths = RuntimePaths {
+            config_file: temp.path().join("config/config.toml"),
+            state_file: temp.path().join("state/state.json"),
+            log_file: temp.path().join("state/service.log"),
+            cache_dir: temp.path().join("cache"),
+            state_dir: temp.path().join("state"),
+            config_dir: temp.path().join("config"),
+        };
+        paths.ensure_dirs()?;
+
+        let deb_path = temp.path().join("dist/codex.deb");
+        std::fs::create_dir_all(deb_path.parent().expect("deb path should have parent"))?;
+        std::fs::write(&deb_path, b"deb")?;
+
+        let config = RuntimeConfig {
+            dmg_url: "https://example.com/Codex.dmg".to_string(),
+            initial_check_delay_seconds: 1,
+            check_interval_hours: 6,
+            auto_install_on_app_exit: false,
+            notifications: false,
+            workspace_root: temp.path().join("cache"),
+            builder_bundle_root: temp.path().join("builder"),
+            app_executable_path: temp.path().join("not-running-electron"),
+        };
+
+        let mut state = PersistedState::new(false);
+        state.status = UpdateStatus::Failed;
+        state.candidate_version = Some("2026.03.25.010203+deadbeef".to_string());
+        state.error_message = Some("previous failure".to_string());
+        state.artifact_paths.deb_path = Some(deb_path);
+
+        reconcile_pending_install(&config, &mut state, &paths).await?;
+
+        assert_eq!(state.status, UpdateStatus::ReadyToInstall);
+        assert_eq!(state.error_message, None);
+        Ok(())
+    }
 
     #[test]
     fn notification_events_are_deduplicated() -> Result<()> {
