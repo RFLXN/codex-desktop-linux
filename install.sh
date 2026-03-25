@@ -312,6 +312,24 @@ ensure_update_manager_service() {
         return 0
     fi
 
+    systemctl --user import-environment \
+        PATH \
+        DISPLAY \
+        WAYLAND_DISPLAY \
+        DBUS_SESSION_BUS_ADDRESS \
+        XAUTHORITY \
+        XDG_RUNTIME_DIR >/dev/null 2>&1 || true
+
+    if command -v dbus-update-activation-environment >/dev/null 2>&1; then
+        dbus-update-activation-environment --systemd \
+            PATH \
+            DISPLAY \
+            WAYLAND_DISPLAY \
+            DBUS_SESSION_BUS_ADDRESS \
+            XAUTHORITY \
+            XDG_RUNTIME_DIR >/dev/null 2>&1 || true
+    fi
+
     if systemctl --user is-enabled codex-update-manager.service >/dev/null 2>&1; then
         systemctl --user start codex-update-manager.service >/dev/null 2>&1 || true
     else
