@@ -18,7 +18,9 @@ Local auto-updates rebuild a Linux package from the upstream Codex.dmg and there
 require the local packaging toolchain listed in Requires.
 
 %install
-# Files are pre-staged in BUILDROOT by build-rpm.sh
+# Files are staged by build-rpm.sh outside of BUILDROOT and copied here.
+mkdir -p %{buildroot}
+cp -a "__RPM_STAGING_DIR__/." "%{buildroot}/"
 
 %files
 %defattr(-,root,root,-)
@@ -102,5 +104,5 @@ if command -v runuser >/dev/null 2>&1 && command -v systemctl >/dev/null 2>&1; t
 fi
 
 %changelog
-* Wed Jan 01 2026 Codex Desktop Linux Maintainers <maintainers@codex-desktop-linux>
+* Thu Jan 01 2026 Codex Desktop Linux Maintainers <maintainers@codex-desktop-linux>
 - Initial RPM package
