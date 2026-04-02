@@ -41,6 +41,24 @@ cleanup() {
 trap cleanup EXIT
 trap 'error "Failed at line $LINENO (exit code $?)"' ERR
 
+if [[ "${1:-}" == "--help" || "${1:-}" == "-h" ]]; then
+    cat <<'HELP'
+Usage: ./install.sh [OPTIONS]
+
+Converts the official macOS Codex Desktop app to run on Linux.
+
+Options:
+  -h, --help    Show this help message and exit
+
+Environment variables:
+  CODEX_INSTALL_DIR   Override the install directory (default: ./codex-app)
+
+After install, launch with:
+  ./codex-app/start.sh
+HELP
+    exit 0
+fi
+
 # ---- Check dependencies ----
 check_deps() {
     local missing=()
@@ -262,6 +280,26 @@ APP_PID_FILE="$APP_STATE_DIR/app.pid"
 PACKAGED_RUNTIME_HELPER="$SCRIPT_DIR/.codex-linux/codex-packaged-runtime.sh"
 
 mkdir -p "$LOG_DIR" "$APP_STATE_DIR"
+
+if [[ "${1:-}" == "--help" || "${1:-}" == "-h" ]]; then
+    cat <<'HELP'
+Usage: ./start.sh [OPTIONS] [-- ELECTRON_FLAGS...]
+
+Launches the Codex Desktop app.
+
+Options:
+  -h, --help                  Show this help message and exit
+  --disable-gpu               Completely disable GPU acceleration
+  --disable-gpu-compositing   Disable GPU compositing (fixes flickering)
+  --ozone-platform=x11        Force X11 instead of Wayland
+
+Extra flags are passed directly to Electron.
+
+Logs: ~/.cache/codex-desktop/launcher.log
+HELP
+    exit 0
+fi
+
 exec >>"$LOG_FILE" 2>&1
 
 echo "[$(date -Is)] Starting Codex Desktop launcher"
@@ -399,6 +437,7 @@ exec "$SCRIPT_DIR/electron" \
     --app-id=Codex \
     --ozone-platform-hint=auto \
     --disable-gpu-sandbox \
+    --disable-gpu-compositing \
     --enable-features=WaylandWindowDecorations \
     "$@"
 SCRIPT
