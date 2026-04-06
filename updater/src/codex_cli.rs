@@ -29,10 +29,14 @@ pub fn preflight(
     state: &mut PersistedState,
     paths: &RuntimePaths,
     explicit_cli_path: Option<PathBuf>,
+    allow_install_missing: bool,
 ) -> Result<PreflightOutcome> {
     let requested_path = explicit_cli_path.as_deref();
-    let cli_path = resolve_cli_path(requested_path)
-        .ok_or_else(|| anyhow!("Codex CLI not found in PATH or known install locations"))?;
+    let cli_path = match resolve_cli_path(requested_path) {
+        Some(path) => path,
+        None if allow_install_missing => install_missing_cli(state, paths, requested_path)?,
+        None => anyhow::bail!("Codex CLI not found in PATH or known install locations"),
+    };
     let installed_version = read_installed_version(&cli_path)?;
     state.cli_path = Some(cli_path.clone());
     state.cli_installed_version = Some(installed_version.clone());
@@ -267,6 +271,31 @@ fn install_latest_cli(latest_version: &str) -> Result<()> {
             })
         }
     }
+}
+
+fn install_missing_cli(
+    state: &mut PersistedState,
+    paths: &RuntimePaths,
+    requested_path: Option<&Path>,
+) -> Result<PathBuf> {
+    state.cli_status = CliStatus::Updating;
+    persist_state(paths, state)?;
+
+    let latest_version = read_latest_version()?;
+    state.cli_latest_version = Some(latest_version.clone());
+    persist_state(paths, state)?;
+
+    info!(
+        latest_version,
+        "Codex CLI is missing; attempting automatic installation"
+    );
+    install_latest_cli(&latest_version)?;
+
+    let cli_path = resolve_cli_path(requested_path)
+        .or_else(|| resolve_cli_path(None))
+        .ok_or_else(|| anyhow!("Codex CLI installed but could not be found afterwards"))?;
+
+    Ok(cli_path)
 }
 
 fn run_command<I, S>(program: &Path, args: I) -> Result<String>
