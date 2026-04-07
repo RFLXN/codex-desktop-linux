@@ -311,6 +311,13 @@ extract_webview() {
     local asar_extracted="$WORK_DIR/app-extracted"
     if [ -d "$asar_extracted/webview" ]; then
         cp -r "$asar_extracted/webview/"* "$INSTALL_DIR/content/webview/"
+        # Replace transparent startup background with an opaque color for Linux.
+        # The upstream app relies on macOS vibrancy for the transparent effect;
+        # on Linux the transparent background causes flickering.
+        local webview_index="$INSTALL_DIR/content/webview/index.html"
+        if [ -f "$webview_index" ]; then
+            sed -i 's/--startup-background: transparent/--startup-background: #1e1e1e/' "$webview_index"
+        fi
         info "Webview files copied"
     else
         warn "Webview directory not found in asar — app may not work"

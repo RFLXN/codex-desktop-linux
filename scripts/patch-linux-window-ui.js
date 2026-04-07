@@ -69,6 +69,39 @@ if (source.includes(setIconNeedle) && !source.includes("&&D.setIcon(")) {
   console.warn("WARN: Could not find window setIcon insertion point — skipping setIcon patch");
 }
 
+// Patch 4: Replace transparent BrowserWindow background with opaque colors on Linux.
+// On macOS vibrancy handles transparency; on Linux there is no compositor equivalent,
+// so the transparent background causes flickering when the window moves or on hover.
+const colorConstRegex = /([A-Za-z_$][\w$]*)=`#00000000`,([A-Za-z_$][\w$]*)=`#000000`,([A-Za-z_$][\w$]*)=`#f9f9f9`/;
+const colorMatch = source.match(colorConstRegex);
+
+if (colorMatch) {
+  const [, transparentVar, darkVar, lightVar] = colorMatch;
+
+  // Capture the prefersDarkColors parameter name from the background function signature.
+  const funcParamRegex = /prefersDarkColors:([A-Za-z_$][\w$]*)\}\)\{return\s*([A-Za-z_$][\w$]*)===`win32`/;
+  const funcMatch = source.match(funcParamRegex);
+
+  if (funcMatch) {
+    const darkColorsParam = funcMatch[1];
+
+    const bgNeedle =
+      `backgroundMaterial:\`mica\`}:{backgroundColor:${transparentVar},backgroundMaterial:null}}`;
+    const bgReplacement =
+      `backgroundMaterial:\`mica\`}:process.platform===\`linux\`?{backgroundColor:${darkColorsParam}?${darkVar}:${lightVar},backgroundMaterial:null}:{backgroundColor:${transparentVar},backgroundMaterial:null}}`;
+
+    if (source.includes(bgNeedle)) {
+      source = source.replace(bgNeedle, bgReplacement);
+    } else {
+      console.warn("WARN: Could not find BrowserWindow background color needle — skipping background patch");
+    }
+  } else {
+    console.warn("WARN: Could not find prefersDarkColors parameter — skipping background patch");
+  }
+} else {
+  console.warn("WARN: Could not find color constants (#00000000, #000000, #f9f9f9) — skipping background patch");
+}
+
 fs.writeFileSync(target, source, "utf8");
 
 if (packageJson.desktopName !== "codex-desktop.desktop") {
