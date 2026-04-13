@@ -108,7 +108,11 @@ pub async fn download_dmg(
         .await
         .with_context(|| format!("Failed flushing {}", destination.display()))?;
 
-    let sha256 = format!("{:x}", hasher.finalize());
+    let sha256 = hasher
+        .finalize()
+        .iter()
+        .map(|byte| format!("{byte:02x}"))
+        .collect::<String>();
     let candidate_version = derive_candidate_version(&sha256, version_timestamp)?;
 
     Ok(DownloadedDmg {

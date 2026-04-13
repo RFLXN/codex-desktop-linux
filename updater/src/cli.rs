@@ -21,6 +21,8 @@ pub enum Commands {
         cli_path: Option<PathBuf>,
         #[arg(long)]
         print_path: bool,
+        #[arg(long, default_value_t = false)]
+        allow_install_missing: bool,
     },
     Status {
         #[arg(long)]

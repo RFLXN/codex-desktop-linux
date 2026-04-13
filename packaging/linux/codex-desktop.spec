@@ -13,7 +13,7 @@ Requires:       mesa-libgbm
 
 %description
 Community-built Linux package for Codex Desktop generated from the macOS DMG.
-Requires the Codex CLI to be available in PATH or configured via CODEX_CLI_PATH.
+Requires the Codex CLI to be available in PATH or CODEX_CLI_PATH.
 Local auto-updates rebuild a Linux package from the upstream Codex.dmg and therefore
 require the local packaging toolchain listed in Requires.
 

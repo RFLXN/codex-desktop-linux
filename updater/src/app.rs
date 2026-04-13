@@ -36,7 +36,14 @@ pub async fn run(cli: Cli) -> Result<()> {
         Commands::CliPreflight {
             cli_path,
             print_path,
-        } => run_cli_preflight(&mut state, &paths, cli_path, print_path),
+            allow_install_missing,
+        } => run_cli_preflight(
+            &mut state,
+            &paths,
+            cli_path,
+            print_path,
+            allow_install_missing,
+        ),
         Commands::Status { json } => run_status(state, json),
         Commands::InstallDeb { path } => install::install_deb(&path),
         Commands::InstallRpm { path } => install::install_rpm(&path),
@@ -192,8 +199,9 @@ fn run_cli_preflight(
     paths: &RuntimePaths,
     cli_path: Option<std::path::PathBuf>,
     print_path: bool,
+    allow_install_missing: bool,
 ) -> Result<()> {
-    let outcome = codex_cli::preflight(state, paths, cli_path)?;
+    let outcome = codex_cli::preflight(state, paths, cli_path, allow_install_missing)?;
     if print_path {
         println!("{}", outcome.cli_path.display());
     }

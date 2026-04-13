@@ -3,6 +3,29 @@
 All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
+## [0.4.0] - 2026-04-13
+
+### Added
+
+- Automatic Codex CLI installation during launcher preflight when the CLI is missing, exposed through the updater `cli-preflight --allow-install-missing` flow.
+- Linux `Open in File Manager` integration in the patched app bundle.
+- Launcher-side webview origin validation before Electron starts, with clearer diagnostics when port `5175` serves the wrong content or exits early.
+- Expanded smoke coverage for Linux launcher generation and UI patching behavior.
+
+### Changed
+
+- Linux ASAR patching now also adjusts shell behavior, window icon handling, and default opaque window settings on Linux when the user has not explicitly chosen a translucent sidebar preference yet.
+- Desktop notifications now resolve icons from packaged, system, and repository locations and send them as file URIs for better desktop-environment compatibility.
+- `scripts/install-deps.sh` now owns the `7zz` bootstrap flow, probes pinned upstream tarballs newest-first with `HEAD` checks, and installs to `~/.local/bin` by default unless `SEVENZIP_SYSTEM_INSTALL=1`.
+- Updated bundled dependencies and metadata: Electron `40.8.5`, `tokio` `1.51.1`, `windows-sys` `0.61.2`, and `codex-update-manager` `0.4.0`.
+
+### Fixed
+
+- Avoid Linux startup failures caused by stale minified symbol assumptions in the window icon patch (`t.join is not a function`).
+- Make updater SHA-256 formatting deterministic so downloaded DMGs produce stable candidate versions and comparisons.
+- Prevent `bootstrap_7zz` from warning on unsupported architectures when a working `7zz` or a new enough system `7z` is already available.
+- Keep the Linux file manager patch fail-soft when upstream minified bundles drift while still validating that the expected Linux hooks were actually applied.
+
 ## [0.3.2] - 2026-04-07
 
 ### Fixed
