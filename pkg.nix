@@ -1,16 +1,18 @@
 { lib
 , stdenv
 , stdenvNoCC
+, autoPatchelfHook
+, makeWrapper
 , bash
 , nodejs
 , python3
 , p7zip
-, curl
+, patchelf
+, gcc
 , unzip
 , gnumake
-, gcc
-, patchelf
 , coreutils
+, cacert
 , diffutils
 , findutils
 , gnugrep
@@ -68,27 +70,34 @@ let
         !(lib.hasSuffix "/.codex" pathStr || lib.hasInfix "/.codex/" pathStr));
   };
 
-  runtimeTools = [
-    bash
-    nodejs
-    python3
-    p7zip
-    curl
-    unzip
-    gnumake
-    gcc
-    patchelf
-    coreutils
-    diffutils
-    findutils
-    gnugrep
-    gnused
-    libnotify
-    procps
-    util-linux
-  ];
+  buildSource = lib.fileset.toSource {
+    root = ./.;
+    fileset = lib.fileset.unions [
+      ./assets/codex.png
+      ./nix/build-codex-app.sh
+      ./scripts/patch-linux-window-ui.js
+    ];
+  };
 
-  electronLibPath = lib.makeLibraryPath [
+  electronVersion = "40.8.5";
+  electronMeta =
+    {
+      x86_64-linux = {
+        arch = "x64";
+        hash = "sha256-O85u5OTkgffObQvjhPbFOc4W4Lm39GEVrsZRZ3D2wm0=";
+      };
+      aarch64-linux = {
+        arch = "arm64";
+        hash = "sha256-WvAHPFKo3HKeEYNAtfUMSykyvZS6mS4cU4D+FUUzA3M=";
+      };
+    }.${stdenv.hostPlatform.system} or (throw "Unsupported system for Codex Desktop: ${stdenv.hostPlatform.system}");
+
+  electronZip = fetchurl {
+    url = "https://github.com/electron/electron/releases/download/v${electronVersion}/electron-v${electronVersion}-linux-${electronMeta.arch}.zip";
+    hash = electronMeta.hash;
+  };
+
+  electronLibs = [
     glib
     gtk3
     pango
@@ -123,129 +132,143 @@ let
     wayland
   ];
 
-  packageStamp = builtins.hashString "sha256" ''
-    source=${toString sourceRoot}
+  runtimePath = lib.makeBinPath [
+    bash
+    nodejs
+    python3
+    coreutils
+    diffutils
+    findutils
+    gnugrep
+    gnused
+    libnotify
+    procps
+    util-linux
+  ];
+
+  buildStamp = builtins.hashString "sha256" ''
+    source=${toString buildSource}
     dmg=${toString codexDmg}
-    electronLibPath=${electronLibPath}
+    electron=${toString electronZip}
+    electronVersion=${electronVersion}
   '';
 
-  version = "unstable-${builtins.substring 0 12 packageStamp}";
+  version = "unstable-${builtins.substring 0 12 buildStamp}";
 
-  runtimePath = lib.makeBinPath runtimeTools;
-  desktopFile = "${sourceRoot}/packaging/linux/codex-desktop.desktop";
-  iconFile = "${sourceRoot}/assets/codex.png";
+  codexAppRaw = stdenvNoCC.mkDerivation {
+    pname = "codex-desktop-app";
+    inherit version;
+
+    src = buildSource;
+    dontUnpack = true;
+    dontConfigure = true;
+    dontBuild = true;
+    dontFixup = true;
+
+    nativeBuildInputs = [
+      bash
+      nodejs
+      python3
+      p7zip
+      patchelf
+      gcc
+      unzip
+      gnumake
+      coreutils
+      cacert
+      diffutils
+      findutils
+      gnugrep
+      gnused
+    ];
+
+    outputHashMode = "recursive";
+    outputHashAlgo = "sha256";
+    outputHash = "sha256-tpMgZaeSyvRXHB3lTf7Kkj/SJuovTbrEG7flfE8K/bI=";
+    preferLocalBuild = true;
+    allowSubstitutes = false;
+
+    installPhase = ''
+      export HOME="$TMPDIR/home"
+      mkdir -p "$HOME"
+      export NIX_SSL_CERT_FILE="${cacert}/etc/ssl/certs/ca-bundle.crt"
+      export SSL_CERT_FILE="$NIX_SSL_CERT_FILE"
+      export NODE_EXTRA_CA_CERTS="$NIX_SSL_CERT_FILE"
+      export npm_config_cache="$TMPDIR/npm-cache"
+      export npm_config_cafile="$NIX_SSL_CERT_FILE"
+      export npm_config_update_notifier=false
+      export npm_config_fund=false
+      export npm_config_audit=false
+      export npm_config_progress=false
+      unset NIX_LDFLAGS NIX_CFLAGS_COMPILE NIX_CFLAGS_LINK LDFLAGS CFLAGS CXXFLAGS
+
+      export SOURCE_ROOT="${buildSource}"
+      export DMG_PATH="${codexDmg}"
+      export ELECTRON_ZIP="${electronZip}"
+      export ELECTRON_VERSION="${electronVersion}"
+      export ICON_SOURCE="${buildSource}/assets/codex.png"
+      export PATCH_SCRIPT="${buildSource}/scripts/patch-linux-window-ui.js"
+      export INSTALL_DIR="$out"
+      export NIX_BASH="/bin/bash"
+
+      "${bash}/bin/bash" "${buildSource}/nix/build-codex-app.sh"
+    '';
+  };
 in
-stdenvNoCC.mkDerivation {
+stdenv.mkDerivation {
   pname = "codex-desktop";
   inherit version;
 
+  src = codexAppRaw;
   dontUnpack = true;
+  dontConfigure = true;
+  dontBuild = true;
+  dontStrip = true;
+
+  nativeBuildInputs = [
+    autoPatchelfHook
+    makeWrapper
+    bash
+    coreutils
+    gnused
+  ];
+
+  buildInputs = electronLibs;
 
   installPhase = ''
+    runHook preInstall
+
     mkdir -p \
+      "$out/lib" \
       "$out/bin" \
       "$out/share/applications" \
       "$out/share/icons/hicolor/256x256/apps"
 
-    cat > "$out/bin/codex-desktop" <<'SCRIPT'
-#!${bash}/bin/bash
-set -euo pipefail
+    cp -aT "$src" "$out/lib/codex-desktop"
 
-export PATH='${runtimePath}':"$PATH"
+    substituteInPlace "$out/lib/codex-desktop/start.sh" \
+      --replace-fail '#!/bin/bash' '#!${bash}/bin/bash'
 
-RUNTIME_ROOT="''${CODEX_NIX_RUNTIME_ROOT:-''${XDG_DATA_HOME:-$HOME/.local/share}/codex-desktop-nix}"
-APP_DIR="$RUNTIME_ROOT/codex-app"
-STAMP_FILE="$RUNTIME_ROOT/build-stamp"
-LOCK_FILE="$RUNTIME_ROOT/install.lock"
-EXPECTED_STAMP='${packageStamp}'
-
-mkdir -p "$RUNTIME_ROOT"
-exec 9>"$LOCK_FILE"
-flock 9
-
-stamp_matches() {
-    [ -f "$STAMP_FILE" ] && [ "$(cat "$STAMP_FILE")" = "$EXPECTED_STAMP" ]
-}
-
-app_ready() {
-    [ -x "$APP_DIR/start.sh" ] && [ -x "$APP_DIR/electron" ]
-}
-
-patch_nixos_runtime() {
-    local install_dir="$1"
-    local dynamic_linker
-    dynamic_linker="$(cat '${stdenv.cc}/nix-support/dynamic-linker')"
-
-    if [ -f "$install_dir/start.sh" ]; then
-        sed -i "1s|^#!/bin/bash$|#!${bash}/bin/bash|" "$install_dir/start.sh"
-    fi
-
-    if [ -f "$install_dir/electron" ]; then
-        echo "[NIX] Patching Electron runtime in $install_dir"
-        patchelf --set-interpreter "$dynamic_linker" \
-                 --set-rpath "$install_dir:${electronLibPath}" \
-                 "$install_dir/electron"
-
-        if [ -f "$install_dir/chrome_crashpad_handler" ]; then
-            patchelf --set-interpreter "$dynamic_linker" \
-                     "$install_dir/chrome_crashpad_handler" || true
-        fi
-
-        if [ -f "$install_dir/chrome-sandbox" ]; then
-            patchelf --set-interpreter "$dynamic_linker" \
-                     "$install_dir/chrome-sandbox" || true
-        fi
-
-        find "$install_dir" -maxdepth 1 -name "*.so*" -type f | while read -r so; do
-            patchelf --set-rpath '${electronLibPath}' "$so" 2>/dev/null || true
-        done
-    fi
-}
-
-materialize_app() {
-    local build_root
-    build_root="$(mktemp -d "$RUNTIME_ROOT/build.XXXXXX")"
-
-    cleanup_build_root() {
-        rm -rf "$build_root"
-    }
-    trap cleanup_build_root RETURN
-
-    local install_dir="$build_root/codex-app"
-
-    echo "[NIX] Materializing Codex Desktop into $APP_DIR"
-    CODEX_INSTALL_DIR="$install_dir" '${bash}/bin/bash' '${sourceRoot}/install.sh' '${codexDmg}'
-    patch_nixos_runtime "$install_dir"
-    printf '%s\n' "$EXPECTED_STAMP" > "$build_root/build-stamp"
-
-    rm -rf "$APP_DIR"
-    mv "$install_dir" "$APP_DIR"
-    mv "$build_root/build-stamp" "$STAMP_FILE"
-}
-
-if ! app_ready || ! stamp_matches; then
-    materialize_app
-fi
-
-exec '${bash}/bin/bash' "$APP_DIR/start.sh" "$@"
-SCRIPT
-
-    chmod 0755 "$out/bin/codex-desktop"
+    makeWrapper "$out/lib/codex-desktop/start.sh" "$out/bin/codex-desktop" \
+      --prefix PATH : "${runtimePath}" \
+      --set-default CHROME_DESKTOP "codex-desktop.desktop" \
+      --set-default BAMF_DESKTOP_FILE_HINT "$out/share/applications/codex-desktop.desktop"
 
     sed \
-      -e "s|/usr/bin/codex-desktop|$out/bin/codex-desktop|g" \
-      -e "s|/usr/share/applications/codex-desktop.desktop|$out/share/applications/codex-desktop.desktop|g" \
-      "${desktopFile}" > "$out/share/applications/codex-desktop.desktop"
+      -e "s|Exec=.*|Exec=$out/bin/codex-desktop|g" \
+      "${sourceRoot}/packaging/linux/codex-desktop.desktop" > "$out/share/applications/codex-desktop.desktop"
 
-    cp "${iconFile}" "$out/share/icons/hicolor/256x256/apps/codex-desktop.png"
+    cp "${sourceRoot}/assets/codex.png" "$out/share/icons/hicolor/256x256/apps/codex-desktop.png"
+
+    runHook postInstall
   '';
 
   meta = with lib; {
-    description = "Nix package wrapper for Codex Desktop on Linux generated from the upstream DMG";
+    description = "Codex Desktop for Linux rebuilt from the upstream macOS DMG";
     homepage = "https://github.com/ilysenko/codex-desktop-linux";
     license = licenses.unfreeRedistributable;
     maintainers = [];
     mainProgram = "codex-desktop";
-    platforms = platforms.linux;
+    platforms = [ "x86_64-linux" "aarch64-linux" ];
   };
 }
