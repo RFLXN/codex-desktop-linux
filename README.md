@@ -115,13 +115,38 @@ curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
 
 ### NixOS
 
-A Nix flake is provided that handles dependencies and patches Electron for NixOS:
+A Nix package is provided in [pkg.nix](/home/rflxn/development/codex-desktop-linux/pkg.nix). It is installable through `environment.systemPackages` and wraps the same `install.sh` DMG-to-Linux pipeline with Nix-provided tools.
+
+For a flake-based run:
 
 ```bash
-nix run github:ilysenko/codex-desktop-linux
+NIXPKGS_ALLOW_UNFREE=1 nix run github:ilysenko/codex-desktop-linux --impure
 ```
 
-This installs the app into `codex-app/` in the current directory. You can also enter a dev shell with the required tooling:
+That command now materializes the generated app under `~/.local/share/codex-desktop-nix/` on first launch and then starts it.
+
+For `configuration.nix`:
+
+```nix
+{
+  nixpkgs.config.allowUnfree = true;
+
+  environment.systemPackages = [
+    (pkgs.callPackage /path/to/codex-desktop-linux/pkg.nix {})
+  ];
+}
+```
+
+The packaged launcher still follows the repository algorithm:
+
+- uses the pinned upstream `Codex.dmg` from Nix
+- runs `install.sh` with Nix-provided build tools
+- patches the generated Electron runtime for NixOS with `patchelf`
+- launches the generated `codex-app/start.sh` from a user-local runtime directory
+
+The first launch still needs network access because `install.sh` downloads the Linux Electron runtime and npm sources for the native module rebuild step.
+
+You can also enter a dev shell with the required tooling:
 
 ```bash
 nix develop github:ilysenko/codex-desktop-linux
